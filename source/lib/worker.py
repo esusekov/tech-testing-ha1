@@ -38,7 +38,7 @@ def get_redirect_history_from_task(task, timeout, max_redirects=30, user_agent=N
     return is_input, data
 
 
-def worker(config, parent_pid):
+def get_tubes(config):
     input_tube = get_tube(
         host=config.INPUT_QUEUE_HOST,
         port=config.INPUT_QUEUE_PORT,
@@ -64,6 +64,12 @@ def worker(config, parent_pid):
         space=output_tube.queue.space,
         name=output_tube.opt['tube']
     ))
+
+    return input_tube, output_tube
+
+
+def worker(config, parent_pid):
+    input_tube, output_tube = get_tubes(config)
 
     parent_proc = '/proc/{}'.format(parent_pid)
 

@@ -1,6 +1,6 @@
 # coding: utf-8
 import argparse
-from multiprocessing import Process
+import multiprocessing
 import os
 import socket
 import urllib2
@@ -113,7 +113,7 @@ class Config(object):
 
 def spawn_workers(num, target, args, parent_pid):
     for _ in xrange(num):
-        p = Process(target=target, args=args, kwargs={'parent_pid': parent_pid})
+        p = multiprocessing.Process(target=target, args=args, kwargs={'parent_pid': parent_pid})
         p.daemon = True
         p.start()
 
@@ -127,3 +127,4 @@ def check_network_status(check_url, timeout):
         return True
     except (urllib2.URLError, socket.error, ValueError):
         return False
+

@@ -159,9 +159,9 @@ class NotificationPusherTestCase(unittest.TestCase):
                     self.assertTrue(setsid_mock.called)
                     exit_mock.assert_called_once_with(0)
 
-    def test_load_config(self): #TODO - может здесь
+    def test_load_config(self):
         filepath = '/test/'
-        config_test = {'SLEEP': 10, 'HTTP_TIMEOUT': 3, 'MAX_REDIRECTS': 30}
+        config_test = {'SLEEP': 10, 'HTTP_TIMEOUT': 3, 'MAX_REDIRECTS': 30, 'not_valid': 'test'}
 
         def execfile_fake(filepath, variables):
             variables.update(config_test)
@@ -171,6 +171,7 @@ class NotificationPusherTestCase(unittest.TestCase):
             self.assertEqual(config_test['SLEEP'], config.SLEEP)
             self.assertEqual(config_test['HTTP_TIMEOUT'], config.HTTP_TIMEOUT)
             self.assertEqual(config_test['MAX_REDIRECTS'], config.MAX_REDIRECTS)
+            self.assertFalse(hasattr(config, 'not_valid'))
 
     @patch('notification_pusher.signal')
     def test_install_signal_handlers(self, signal_m):
@@ -259,6 +260,27 @@ class NotificationPusherTestCase(unittest.TestCase):
         done_mock.assert_called_once_with(queue_mock)
         sleep_mock.assert_called_once_with(config_mock.SLEEP)
 
+    @patch('notification_pusher.run_application', True)
+    @patch('notification_pusher.configure')
+    @patch('notification_pusher.done_with_processed_tasks')
+    @patch('notification_pusher.add_worker')
+    def test_main_loop_when_app_is_running_but_no_tasks(self, add_work_mock, done_mock, configure_mock):
+        config_mock = Mock(None)
+        config_mock.QUEUE_TAKE_TIMEOUT = 10
+        config_mock.SLEEP = 10
+        tube_mock = Mock(None)
+        tube_mock.take = Mock(return_value=None)
+        pool_mock = Mock(None)
+        pool_mock.free_count = Mock(return_value=5)
+        queue_mock = Mock(None)
+        configure_mock.return_value = tube_mock, pool_mock, queue_mock
+        sleep_mock = Mock(side_effect=stop_app)
+
+        with patch('notification_pusher.sleep', sleep_mock):
+            np.main_loop(config_mock)
+
+        self.assertFalse(add_work_mock.called)
+
     @patch('notification_pusher.run_application', False)
     @patch('notification_pusher.configure')
     @patch('notification_pusher.logger.info')
@@ -330,3 +352,55 @@ class NotificationPusherTestCase(unittest.TestCase):
         np.main([])
 
         sleep_m.assert_called_once_with(conf_mock.SLEEP_ON_FAIL)
+
+    @patch('notification_pusher.run_application', True)
+    @patch('notification_pusher.parse_cmd_args')
+    @patch('notification_pusher.daemonize')
+    @patch('notification_pusher.create_pidfile')
+    @patch('notification_pusher.load_config_from_pyfile')
+    @patch('notification_pusher.patch_all')
+    @patch('notification_pusher.dictConfig')
+    @patch('notification_pusher.install_signal_handlers')
+    @patch('notification_pusher.main_loop')
+    @patch('notification_pusher.sleep')
+    def test_main_no_daemon(self, sleep_m, main_m, inst_sig_m, dictConf_m, patch_m, load_conf_m, create_pid_m, daemon_m, parse_cmd_m):
+        args_mock = Mock(None)
+        args_mock.daemon = False
+        args_mock.pidfile = True
+        args_mock.config = 'test'
+        conf_mock = Mock(None)
+        conf_mock.LOGGING = 'test'
+        conf_mock.SLEEP_ON_FAIL = 100
+        main_m.side_effect = stop_app
+        parse_cmd_m.return_value = args_mock
+        load_conf_m.return_value = conf_mock
+
+        np.main([])
+
+        self.assertFalse(daemon_m.called)
+
+    @patch('notification_pusher.run_application', True)
+    @patch('notification_pusher.parse_cmd_args')
+    @patch('notification_pusher.daemonize')
+    @patch('notification_pusher.create_pidfile')
+    @patch('notification_pusher.load_config_from_pyfile')
+    @patch('notification_pusher.patch_all')
+    @patch('notification_pusher.dictConfig')
+    @patch('notification_pusher.install_signal_handlers')
+    @patch('notification_pusher.main_loop')
+    @patch('notification_pusher.sleep')
+    def test_main_no_pidfile(self, sleep_m, main_m, inst_sig_m, dictConf_m, patch_m, load_conf_m, create_pid_m, daemon_m, parse_cmd_m):
+        args_mock = Mock(None)
+        args_mock.daemon = True
+        args_mock.pidfile = False
+        args_mock.config = 'test'
+        conf_mock = Mock(None)
+        conf_mock.LOGGING = 'test'
+        conf_mock.SLEEP_ON_FAIL = 100
+        main_m.side_effect = stop_app
+        parse_cmd_m.return_value = args_mock
+        load_conf_m.return_value = conf_mock
+
+        np.main([])
+
+        self.assertFalse(create_pid_m.called)
