@@ -110,22 +110,7 @@ def stop_handler(signum):
     exit_code = SIGNAL_EXIT_CODE_OFFSET + signum
 
 
-def main_loop(config):
-    """
-    Основной цикл приложения.
-
-    :param config: конфигурация
-    :type config: Config
-
-    Алгоритм:
-     * Открываем соединение с tarantool.queue, использую config.QUEUE_* настройки.
-     * Создаем пул обработчиков.
-     * Создаем очередь куда обработчики будут помещать выполненные задачи.
-     * Пока количество обработчиков <= config.WORKER_POOL_SIZE, берем задачу из tarantool.queue
-       и запускаем greenlet для ее обработки.
-     * Посылаем уведомления о том, что задачи завершены в tarantool.queue.
-     * Спим config.SLEEP секунд.
-    """
+def configure(config):
     logger.info('Connect to queue server on {host}:{port} space #{space}.'.format(
         host=config.QUEUE_HOST, port=config.QUEUE_PORT, space=config.QUEUE_SPACE
     ))
@@ -149,6 +134,43 @@ def main_loop(config):
         count=config.WORKER_POOL_SIZE, sleep=config.SLEEP
     ))
 
+    return tube, worker_pool, processed_task_queue
+
+
+def add_worker(config, task, number, worker_pool, processed_task_queue):
+    logger.info('Start worker#{number} for task id={task_id}.'.format(
+        task_id=task.task_id, number=number
+    ))
+
+    worker = Greenlet(
+        notification_worker,
+        task,
+        processed_task_queue,
+        timeout=config.HTTP_CONNECTION_TIMEOUT,
+        verify=False
+    )
+    worker_pool.add(worker)
+    worker.start()
+
+
+def main_loop(config):
+    """
+    Основной цикл приложения.
+
+    :param config: конфигурация
+    :type config: Config
+
+    Алгоритм:
+     * Открываем соединение с tarantool.queue, использую config.QUEUE_* настройки.
+     * Создаем пул обработчиков.
+     * Создаем очередь куда обработчики будут помещать выполненные задачи.
+     * Пока количество обработчиков <= config.WORKER_POOL_SIZE, берем задачу из tarantool.queue
+       и запускаем greenlet для ее обработки.
+     * Посылаем уведомления о том, что задачи завершены в tarantool.queue.
+     * Спим config.SLEEP секунд.
+    """
+    tube, worker_pool, processed_task_queue = configure(config)
+
     while run_application:
         free_workers_count = worker_pool.free_count()
 
@@ -160,19 +182,7 @@ def main_loop(config):
             task = tube.take(config.QUEUE_TAKE_TIMEOUT)
 
             if task:
-                logger.info('Start worker#{number} for task id={task_id}.'.format(
-                    task_id=task.task_id, number=number
-                ))
-
-                worker = Greenlet(
-                    notification_worker,
-                    task,
-                    processed_task_queue,
-                    timeout=config.HTTP_CONNECTION_TIMEOUT,
-                    verify=False
-                )
-                worker_pool.add(worker)
-                worker.start()
+                add_worker(config, task, number, worker_pool, processed_task_queue)
 
         done_with_processed_tasks(processed_task_queue)
 
